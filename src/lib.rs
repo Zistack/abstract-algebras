@@ -82,7 +82,11 @@ impl Fold for AlgebraInjector
 						let expr = self . fold_expr (*expr . expr);
 
 						let algebra = &self . algebra;
-						return parse_quote! (#(#attrs)* #algebra . #op_ident (#expr));
+						return parse_quote!
+						(
+							#(#attrs)*
+							#algebra . clone () . #op_ident (#expr)
+						);
 					}
 				}
 
@@ -103,7 +107,11 @@ impl Fold for AlgebraInjector
 						let right = self . fold_expr (*expr . right);
 
 						let algebra = &self . algebra;
-						return parse_quote! (#(#attrs)* #algebra . #op_ident (#left, #right));
+						return parse_quote!
+						(
+							#(#attrs)*
+							#algebra . clone () . #op_ident (#left, #right)
+						);
 					}
 				}
 
@@ -130,7 +138,11 @@ impl Fold for AlgebraInjector
 						. collect ();
 
 					let algebra = &self . algebra;
-					parse_quote! (#(#attrs)* #algebra . #method #turbofish (#receiver, #args))
+					parse_quote!
+					(
+						#(#attrs)*
+						#algebra . clone () . #method #turbofish (#receiver, #args)
+					)
 				}
 				else
 				{
