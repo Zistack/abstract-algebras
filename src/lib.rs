@@ -54,6 +54,24 @@ fn bin_op_ident (bin_op: &BinOp) -> Option <Ident>
 	}
 }
 
+fn is_assign_op (bin_op: &BinOp) -> bool
+{
+	match bin_op
+	{
+		BinOp::AddAssign (_) => true,
+		BinOp::SubAssign (_) => true,
+		BinOp::MulAssign (_) => true,
+		BinOp::DivAssign (_) => true,
+		BinOp::RemAssign (_) => true,
+		BinOp::BitXorAssign (_) => true,
+		BinOp::BitAndAssign (_) => true,
+		BinOp::BitOrAssign (_) => true,
+		BinOp::ShlAssign (_) => true,
+		BinOp::ShrAssign (_) => true,
+		_ => false
+	}
+}
+
 struct AlgebraInjector
 {
 	algebra: Expr,
@@ -105,6 +123,13 @@ impl Fold for AlgebraInjector
 							. collect ();
 						let left = self . fold_expr (*expr . left);
 						let right = self . fold_expr (*expr . right);
+
+						let left =
+							if is_assign_op (&expr . op)
+							{
+								parse_quote! (&mut #left)
+							}
+							else { left };
 
 						let algebra = &self . algebra;
 						return parse_quote!
