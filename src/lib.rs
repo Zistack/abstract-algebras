@@ -1,7 +1,21 @@
 use std::collections::HashSet;
 
 use proc_macro::TokenStream;
-use syn::{Attribute, Ident, Expr, UnOp, BinOp, Token, parse_quote, parse_macro_input};
+use syn
+::{
+	Attribute,
+	Ident,
+	Type,
+	TypePath,
+	Expr,
+	ExprPath,
+	PathArguments,
+	UnOp,
+	BinOp,
+	Token,
+	parse_quote,
+	parse_macro_input
+};
 use syn::token::Paren;
 use syn::punctuated::Punctuated;
 use syn::fold::{Fold, fold_expr};
@@ -72,12 +86,65 @@ fn is_assign_op (bin_op: &BinOp) -> bool
 	}
 }
 
+fn check_qself (node: &ExprPath) -> bool
+{
+	// No qpath is always valid.
+
+	// When a qpath is present, it is valid when it only contains a type, or if
+	// it would leave more than one segment after the angle brackets.
+
+	if let Some (qself) = &node . qself
+	{
+		qself . position == 0
+		|| (
+			node . path . segments . len () > 1
+			&& qself . position < node . path . segments . len () - 1
+		)
+	}
+	else { true }
+}
+
+fn get_last_ident (node: &ExprPath) -> Option <Ident>
+{
+	if let Some (last) = node . path . segments . last ()
+	{
+		if let PathArguments::None = last . arguments
+		{
+			return Some (last . ident . clone ());
+		}
+	}
+
+	None
+}
+
+fn get_type (node: ExprPath) -> Type
+{
+	let qself =
+		if let Some (qself) = node . qself
+		{
+			if qself . position == 0
+			{
+				return *qself . ty;
+			}
+			else { Some (qself) }
+		}
+		else { None };
+
+	let mut path = node . path;
+
+	path . segments . pop ();
+	path . segments . pop_punct ();
+
+	Type::Path (TypePath {qself, path})
+}
+
 struct AlgebraInjector
 {
 	algebra: Expr,
 	unary_ops: HashSet <UnOp>,
 	binary_ops: HashSet <BinOp>,
 	methods: HashSet <Ident>,
+	functions: HashSet <Ident>
 }
 
 impl Fold for AlgebraInjector
@@ -174,6 +241,42 @@ impl Fold for AlgebraInjector
 					Expr::MethodCall (self . fold_expr_method_call (expr))
 				}
 			},
+			Expr::Call (expr) =>
+			{
+				if let Expr::Path (func) = *expr . func . clone ()
+				{
+					if let Some (func_ident) = get_last_ident (&func)
+					{
+						if self . functions . contains (&func_ident)
+							&& check_qself (&func)
+						{
+							let ty = self . fold_type (get_type (func));
+
+							let attrs: Vec <Attribute> = expr
+								. attrs
+								. into_iter ()
+								. map (|attr| self . fold_attribute (attr))
+								. collect ();
+							let args: Punctuated <Expr, Token! [,]> = expr
+								. args
+								. into_iter ()
+								. map (|arg| self . fold_expr (arg))
+								. collect ();
+
+							let algebra = &self . algebra;
+							return parse_quote!
+							({
+								let x: #ty =
+									#(#attrs)*
+									#algebra . clone () . #func_ident (#args);
+								x
+							});
+						}
+					}
+				}
+
+				Expr::Call (self . fold_expr_call (expr))
+			}
 			_ => fold_expr (self, expr)
 		}
 	}
@@ -205,13 +308,19 @@ struct UseAlgebra
 	m_paren_token: Paren,
 	#[syn (in = m_paren_token)]
 	#[parse (Punctuated::parse_terminated)]
-	methods: Punctuated <Ident, Token! [,]>
+	methods: Punctuated <Ident, Token! [,]>,
+
+	#[syn (parenthesized)]
+	f_paren_token: Paren,
+	#[syn (in = f_paren_token)]
+	#[parse (Punctuated::parse_terminated)]
+	functions: Punctuated <Ident, Token! [,]>
 }
 
 #[proc_macro]
 pub fn use_algebra (input: TokenStream) -> TokenStream
 {
-	let UseAlgebra {algebra, expr, unary_ops, binary_ops, methods, ..} =
+	let UseAlgebra {algebra, expr, unary_ops, binary_ops, methods, functions, ..} =
 		parse_macro_input! (input);
 
 	AlgebraInjector
@@ -219,7 +328,8 @@ pub fn use_algebra (input: TokenStream) -> TokenStream
 		algebra,
 		unary_ops: HashSet::from_iter (unary_ops),
 		binary_ops: HashSet::from_iter (binary_ops),
-		methods: HashSet::from_iter (methods)
+		methods: HashSet::from_iter (methods),
+		functions: HashSet::from_iter (functions)
 	}
 		. fold_expr (expr)
 		. into_token_stream ()
