@@ -155,7 +155,11 @@ impl Fold for AlgebraInjector
 		{
 			Expr::Unary (expr) =>
 			{
-				if self . unary_ops . contains (&expr . op)
+				if let Expr::Lit (_) = &*expr . expr
+				{
+					return Expr::Unary (expr);
+				}
+				else if self . unary_ops . contains (&expr . op)
 				{
 					if let Some (op_ident) = un_op_ident (&expr . op)
 					{
